@@ -166,7 +166,7 @@ fn main() {
         let mut bytes = vec![];
         if reader.read_to_end(&mut bytes).is_ok() {
             let mut index: usize = 0;
-            while index < bytes.len() {
+            while bytes.len() > index + 1 {
                 let byte_one: u8 = bytes[index];
                 let byte_two: u8 = bytes[index + 1];
 
