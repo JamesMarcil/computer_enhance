@@ -155,7 +155,7 @@ fn get_register(reg: u8, is_word: bool) -> &'static str {
     }
 }
 
-fn decode_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
+fn decode_mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
     if bytes.len() < *index + 1 {
         panic!("Invalid instruction length, expected two bytes!");
     }
@@ -178,8 +178,8 @@ fn decode_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
     let register_in_reg = get_register(register, is_word);
     let register_in_r_m = get_register(register_memory, is_word);
 
-    let source_in_reg = direction == D_FROM_REGISTER;
-    if source_in_reg {
+    let destination_in_reg = direction == D_FROM_REGISTER;
+    if destination_in_reg {
         println!("MOV {}, {}", register_in_reg, register_in_r_m);
     } else {
         println!("MOV {}, {}", register_in_r_m, register_in_reg);
@@ -205,7 +205,7 @@ fn main() {
 
                 match opcode {
                     OPCODE_MOV_REG_MEM_TO_FROM_REG => {
-                        decode_reg_mem_to_from_reg(&mut index, &bytes);
+                        decode_mov_reg_mem_to_from_reg(&mut index, &bytes)
                     }
                     _ => {
                         panic!("Unsupported OPCODE {}!", opcode);
