@@ -163,29 +163,64 @@ fn decode_mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
     let byte_one: u8 = bytes[*index];
     let byte_two: u8 = bytes[*index + 1];
 
-    let direction: u8 = (byte_one & D) >> 1;
-    let is_word: u8 = byte_one & W;
-
     let mode: u8 = (byte_two & MOD) >> 6;
-    let register: u8 = (byte_two & REG) >> 3;
-    let register_memory: u8 = byte_two & R_M;
 
-    if mode != MOD_REGISTER {
-        panic!("Unsupported MOD {}!", mode);
-    }
+    match mode {
+        MOD_MEMORY_NO_DISPLACEMENT => {
+            panic!("TODO(jmarcil): Implement MOD_MEMORY_NO_DISPLACEMENT.");
+        }
+        MOD_MEMORY_8_BIT_DISPLACEMENT => {
+            panic!("TODO(jmarcil): Implement MOD_MEMORY_8_BIT_DISPLACEMENT.");
+        }
+        MOD_MEMORY_16_BIT_DISPLACEMENT => {
+            panic!("TODO(jmarcil): Implement MOD_MEMORY_16_BIT_DISPLACEMENT.");
+        }
+        MOD_REGISTER => {
+            let is_word: bool = (byte_one & W) == W;
 
-    let is_word = is_word == W_WORD;
-    let register_in_reg = get_register(register, is_word);
-    let register_in_r_m = get_register(register_memory, is_word);
+            let register: u8 = (byte_two & REG) >> 3;
+            let register_in_reg = get_register(register, is_word);
 
-    let destination_in_reg = direction == D_FROM_REGISTER;
-    if destination_in_reg {
-        println!("MOV {}, {}", register_in_reg, register_in_r_m);
-    } else {
-        println!("MOV {}, {}", register_in_r_m, register_in_reg);
+            let register_memory: u8 = byte_two & R_M;
+            let register_in_r_m = get_register(register_memory, is_word);
+
+            let destination_in_reg = (byte_one & D) == D;
+            if destination_in_reg {
+                println!("MOV {}, {}", register_in_reg, register_in_r_m);
+            } else {
+                println!("MOV {}, {}", register_in_r_m, register_in_reg);
+            }
+        }
+        _ => {
+            panic!("Unsupported MOD {}!", mode);
+        }
     }
 
     *index += 2;
+}
+
+fn decode_mov_imm_to_reg(index: &mut usize, bytes: &[u8]) {
+    let byte_one: u8 = bytes[*index];
+
+    let is_word: bool = (byte_one & 0b1000) == 0b1000;
+    let reg: u8 = byte_one & 0b111;
+    let register = get_register(reg, is_word);
+
+    // TODO(jmarcil): Validate instruction length.
+
+    if is_word {
+        let byte_two: u8 = bytes[*index + 1];
+        let byte_three: u8 = bytes[*index + 2];
+        let immediate: i16 = ((byte_three as i16) << 8) | (byte_two as i16);
+        println!("MOV {}, {}", register, immediate);
+
+        *index += 3;
+    } else {
+        let byte_two: i8 = bytes[*index + 1] as i8;
+        println!("MOV {}, {}", register, byte_two);
+
+        *index += 2;
+    }
 }
 
 fn main() {
@@ -204,8 +239,10 @@ fn main() {
                 let opcode: u8 = (byte_one & OPCODE) >> 2;
 
                 match opcode {
-                    OPCODE_MOV_REG_MEM_TO_FROM_REG => {
-                        decode_mov_reg_mem_to_from_reg(&mut index, &bytes)
+                    // TODO(jmarcil): Replace literals with constants.
+                    0b100010 => decode_mov_reg_mem_to_from_reg(&mut index, &bytes),
+                    0b101100 | 0b101101 | 0b101110 | 0b101111 => {
+                        decode_mov_imm_to_reg(&mut index, &bytes)
                     }
                     _ => {
                         panic!("Unsupported OPCODE {}!", opcode);
