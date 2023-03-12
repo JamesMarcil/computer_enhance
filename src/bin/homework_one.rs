@@ -155,6 +155,39 @@ fn get_register(reg: u8, is_word: bool) -> &'static str {
     }
 }
 
+fn decode_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
+    if bytes.len() < *index + 1 {
+        panic!("Invalid instruction length, expected two bytes!");
+    }
+
+    let byte_one: u8 = bytes[*index];
+    let byte_two: u8 = bytes[*index + 1];
+
+    let direction: u8 = (byte_one & D) >> 1;
+    let is_word: u8 = byte_one & W;
+
+    let mode: u8 = (byte_two & MOD) >> 6;
+    let register: u8 = (byte_two & REG) >> 3;
+    let register_memory: u8 = byte_two & R_M;
+
+    if mode != MOD_REGISTER {
+        panic!("Unsupported MOD {}!", mode);
+    }
+
+    let is_word = is_word == W_WORD;
+    let register_in_reg = get_register(register, is_word);
+    let register_in_r_m = get_register(register_memory, is_word);
+
+    let source_in_reg = direction == D_FROM_REGISTER;
+    if source_in_reg {
+        println!("MOV {}, {}", register_in_reg, register_in_r_m);
+    } else {
+        println!("MOV {}, {}", register_in_r_m, register_in_reg);
+    }
+
+    *index += 2;
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -166,38 +199,18 @@ fn main() {
         let mut bytes = vec![];
         if reader.read_to_end(&mut bytes).is_ok() {
             let mut index: usize = 0;
-            while bytes.len() > index + 1 {
+            while bytes.len() > index {
                 let byte_one: u8 = bytes[index];
-                let byte_two: u8 = bytes[index + 1];
-
                 let opcode: u8 = (byte_one & OPCODE) >> 2;
-                let direction: u8 = (byte_one & D) >> 1;
-                let word: u8 = byte_one & W;
 
-                if opcode != OPCODE_MOV_REG_MEM_TO_FROM_REG {
-                    panic!("Unsupported OPCODE {}!", opcode);
+                match opcode {
+                    OPCODE_MOV_REG_MEM_TO_FROM_REG => {
+                        decode_reg_mem_to_from_reg(&mut index, &bytes);
+                    }
+                    _ => {
+                        panic!("Unsupported OPCODE {}!", opcode);
+                    }
                 }
-
-                let mode: u8 = (byte_two & MOD) >> 6;
-                let register: u8 = (byte_two & REG) >> 3;
-                let register_memory: u8 = byte_two & R_M;
-
-                if mode != MOD_REGISTER {
-                    panic!("Unsupported MOD {}!", mode);
-                }
-
-                let is_word = word == W_WORD;
-                let register_in_reg = get_register(register, is_word);
-                let register_in_r_m = get_register(register_memory, is_word);
-
-                let source_in_reg = direction == D_FROM_REGISTER;
-                if source_in_reg {
-                    println!("MOV {}, {}", register_in_reg, register_in_r_m);
-                } else {
-                    println!("MOV {}, {}", register_in_r_m, register_in_reg);
-                }
-
-                index += 2;
             }
         }
     }
