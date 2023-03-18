@@ -152,9 +152,9 @@ fn mov_reg_mem_to_from_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<F
                 0b011 => "[BP + DI]",
                 0b100 => "[SI]",
                 0b101 => "[DI]",
-                0b110 => panic!("TODO(jmarcil): DIRECT ADDRESS"),
+                0b110 => todo!("DIRECT ADDRESS"),
                 0b111 => "[BX]",
-                _ => panic!("Unsupported REG {}!", register_memory),
+                _ => unreachable!(),
             };
 
             let src;
