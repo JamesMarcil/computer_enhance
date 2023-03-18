@@ -6,7 +6,7 @@ use std::{
     iter::Enumerate,
 };
 
-#[derive(clap::Parser)]
+#[derive(Parser)]
 struct Args {
     input: String,
 }
