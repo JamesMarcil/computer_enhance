@@ -33,8 +33,13 @@ const MOD: u8 = 0b11000000;
 const REG: u8 = 0b00111000;
 const R_M: u8 = 0b00000111;
 
+const MOD_MM_NO_DISP: u8 = 0b00;
+const MOD_MM_8_BIT_DISP: u8 = 0b01;
+const MOD_MM_16_BIT_DISP: u8 = 0b10;
+const MOD_RM_NO_DISP: u8 = 0b11;
+
 //------------------------------
-//    MOD    | W == 0 | W == 1 |
+//    REG    | W == 0 | W == 1 |
 //------------------------------
 // 0 | 0 | 0 |   AL   |   AX   |
 //------------------------------
@@ -52,9 +57,9 @@ const R_M: u8 = 0b00000111;
 //------------------------------
 // 1 | 1 | 1 |   BH   |   DI   |
 //------------------------------
-fn get_mod_register(mode: u8, is_word: bool) -> &'static str {
+fn get_reg(reg: u8, is_word: bool) -> &'static str {
     if is_word {
-        match mode {
+        match reg {
             0b000 => "AX",
             0b001 => "CX",
             0b010 => "DX",
@@ -66,7 +71,7 @@ fn get_mod_register(mode: u8, is_word: bool) -> &'static str {
             _ => unreachable!(),
         }
     } else {
-        match mode {
+        match reg {
             0b000 => "AL",
             0b001 => "CL",
             0b010 => "DL",
@@ -80,8 +85,22 @@ fn get_mod_register(mode: u8, is_word: bool) -> &'static str {
     }
 }
 
-// TODO(jmarcil): Add doc comment for mappings.
-fn get_displacement_registers(register_memory: u8) -> &'static str {
+fn get_effective_address(r_m: u8) -> &'static str {
+    match r_m {
+        0b000 => "[BX + SI]",
+        0b001 => "[BX + DI]",
+        0b010 => "[BP + SI]",
+        0b011 => "[BP + DI]",
+        0b100 => "[SI]",
+        0b101 => "[DI]",
+        0b110 => todo!("DIRECT ADDRESS"),
+        0b111 => "[BX]",
+        _ => unreachable!(),
+    }
+}
+
+// TODO(jmarcil): Doc comment.
+fn get_disp_registers(register_memory: u8) -> &'static str {
     match register_memory {
         0b000 => "BX + SI",
         0b001 => "BX + DI",
@@ -95,7 +114,7 @@ fn get_displacement_registers(register_memory: u8) -> &'static str {
     }
 }
 
-fn i8_displacement(register: &str, displacement: i8) -> String {
+fn get_disp_byte(register: &str, displacement: i8) -> String {
     match 0.cmp(&displacement) {
         Ordering::Equal => {
             format!("[{}]", register)
@@ -109,7 +128,7 @@ fn i8_displacement(register: &str, displacement: i8) -> String {
     }
 }
 
-fn i16_displacement(register: &str, displacement: i16) -> String {
+fn get_disp_word(register: &str, displacement: i16) -> String {
     match 0.cmp(&displacement) {
         Ordering::Equal => {
             format!("[{}]", register)
@@ -140,22 +159,11 @@ fn mov_reg_mem_to_from_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<F
     let mode: u8 = (byte_two & MOD) >> 6;
     let register: u8 = (byte_two & REG) >> 3;
     let register_memory: u8 = byte_two & R_M;
-    let register_in_reg: &str = get_mod_register(register, is_word);
+    let register_in_reg: &str = get_reg(register, is_word);
 
     match mode {
-        // No displacement
-        0b00 => {
-            let effective_address: &str = match register_memory {
-                0b000 => "[BX + SI]",
-                0b001 => "[BX + DI]",
-                0b010 => "[BP + SI]",
-                0b011 => "[BP + DI]",
-                0b100 => "[SI]",
-                0b101 => "[DI]",
-                0b110 => todo!("DIRECT ADDRESS"),
-                0b111 => "[BX]",
-                _ => unreachable!(),
-            };
+        MOD_MM_NO_DISP => {
+            let effective_address: &str = get_effective_address(register_memory);
 
             let src;
             let dst;
@@ -169,47 +177,44 @@ fn mov_reg_mem_to_from_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<F
 
             println!("MOV {dst}, {src}");
         }
-        // 8-bit displacement
-        0b01 => {
-            let displacement: i8 = bytes.next().unwrap().1.unwrap() as i8;
+        MOD_MM_8_BIT_DISP => {
+            let disp: i8 = bytes.next().unwrap().1.unwrap() as i8;
 
-            let registers: &str = get_displacement_registers(register_memory);
-
-            let src;
-            let dst;
-            if destination_in_reg {
-                src = i8_displacement(registers, displacement);
-                dst = register_in_reg.to_owned();
-            } else {
-                src = register_in_reg.to_owned();
-                dst = i8_displacement(registers, displacement);
-            };
-
-            println!("MOV {dst}, {src}");
-        }
-        // 16-bit displacement
-        0b10 => {
-            let byte_three: u8 = bytes.next().unwrap().1.unwrap();
-            let byte_four: u8 = bytes.next().unwrap().1.unwrap();
-            let displacement: i16 = (byte_four as i16) << 8 | (byte_three as i16);
-
-            let registers = get_displacement_registers(register_memory);
+            let disp_registers: &str = get_disp_registers(register_memory);
 
             let src;
             let dst;
             if destination_in_reg {
-                src = i16_displacement(registers, displacement);
+                src = get_disp_byte(disp_registers, disp);
                 dst = register_in_reg.to_owned();
             } else {
                 src = register_in_reg.to_owned();
-                dst = i16_displacement(registers, displacement);
+                dst = get_disp_byte(disp_registers, disp);
             };
 
             println!("MOV {dst}, {src}");
         }
-        // Register
-        0b11 => {
-            let register_in_r_m = get_mod_register(register_memory, is_word);
+        MOD_MM_16_BIT_DISP => {
+            let disp_lo: u8 = bytes.next().unwrap().1.unwrap();
+            let disp_hi: u8 = bytes.next().unwrap().1.unwrap();
+            let disp: i16 = (disp_hi as i16) << 8 | (disp_lo as i16);
+
+            let registers = get_disp_registers(register_memory);
+
+            let src;
+            let dst;
+            if destination_in_reg {
+                src = get_disp_word(registers, disp);
+                dst = register_in_reg.to_owned();
+            } else {
+                src = register_in_reg.to_owned();
+                dst = get_disp_word(registers, disp);
+            };
+
+            println!("MOV {dst}, {src}");
+        }
+        MOD_RM_NO_DISP => {
+            let register_in_r_m = get_reg(register_memory, is_word);
 
             let src;
             let dst;
@@ -242,7 +247,7 @@ fn mov_imm_to_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<File>>>) {
     let reg: u8 = byte_one & 0b111;
     let is_word: bool = (byte_one & 0b1000) == 0b1000;
 
-    let src = get_mod_register(reg, is_word);
+    let src = get_reg(reg, is_word);
 
     let dst = if is_word {
         let lo = bytes.next().unwrap().1.unwrap() as i16;
@@ -253,6 +258,72 @@ fn mov_imm_to_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<File>>>) {
     };
 
     println!("MOV {dst}, {src}");
+}
+
+// TODO(jmarcil): Doc comment.
+fn mov_imm_to_r_m(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<File>>>) {
+    let is_word = (byte_one & W) == W;
+
+    let byte_two = bytes.next().unwrap().1.unwrap();
+    let mode = (byte_two & MOD) >> 6;
+    let r_m = byte_two & R_M;
+
+    match mode {
+        MOD_MM_NO_DISP => {
+            if is_word {
+                let lo = bytes.next().unwrap().1.unwrap();
+                let hi = bytes.next().unwrap().1.unwrap();
+                let src: i16 = (hi as i16) << 8 | lo as i16;
+
+                let dst = get_effective_address(r_m);
+
+                println!("MOV {dst}, WORD {src}");
+            } else {
+                let src = bytes.next().unwrap().1.unwrap();
+                let dst = get_effective_address(r_m);
+
+                println!("MOV {dst}, BYTE {src}");
+            }
+        }
+        MOD_MM_8_BIT_DISP => {
+            let disp = bytes.next().unwrap().1.unwrap() as i8;
+            let disp_registers = get_disp_registers(r_m);
+            let dst = get_disp_byte(disp_registers, disp);
+
+            if is_word {
+                let data_lo = bytes.next().unwrap().1.unwrap();
+                let data_hi = bytes.next().unwrap().1.unwrap();
+                let src = (data_hi as i16) << 8 | data_lo as i16;
+
+                println!("MOV {dst}, WORD {src}");
+            } else {
+                let src = bytes.next().unwrap().1.unwrap();
+
+                println!("MOV {dst}, BYTE {src}");
+            }
+        }
+        MOD_MM_16_BIT_DISP => {
+            let disp_lo = bytes.next().unwrap().1.unwrap() as i8;
+            let disp_hi = bytes.next().unwrap().1.unwrap() as i8;
+            let disp = (disp_hi as i16) << 8 | disp_lo as i16;
+            let disp_registers = get_disp_registers(r_m);
+            let dst = get_disp_word(disp_registers, disp);
+
+            if is_word {
+                let data_lo = bytes.next().unwrap().1.unwrap();
+                let data_hi = bytes.next().unwrap().1.unwrap();
+                let src = (data_hi as i16) << 8 | data_lo as i16;
+
+                println!("MOV {dst}, WORD {src}");
+            } else {
+                let src = bytes.next().unwrap().1.unwrap();
+
+                println!("MOV {dst}, BYTE {src}");
+            }
+        }
+        MOD_RM_NO_DISP => todo!("MOD_RM_NO_DISP"),
+        _ => unreachable!(),
+    }
 }
 
 // TODO(jmarcil): Replace panic! with more idiomatic error handling.
@@ -280,6 +351,7 @@ fn main() {
                 //  MOV - Imm to Reg
                 //--------------------------------
                 0b1011_00..=0b1011_11 => mov_imm_to_reg(byte_one, &mut bytes),
+                0b110001 => mov_imm_to_r_m(byte_one, &mut bytes),
                 _ => {
                     panic!("Unsupported OPCODE {:b}!", opcode);
                 }
