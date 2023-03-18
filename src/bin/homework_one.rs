@@ -259,7 +259,7 @@ fn mov_imm_to_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<File>>>) {
 fn main() {
     let args = Args::parse();
 
-    if let Ok(file) = std::fs::File::open(&args.input) {
+    if let Ok(file) = File::open(&args.input) {
         println!("; {}", args.input);
         println!("bits 16");
 
