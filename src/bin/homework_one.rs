@@ -128,7 +128,7 @@ fn get_disp_byte(register: &str, displacement: i8) -> String {
             format!("[{} + {}]", register, displacement)
         }
         Ordering::Greater => {
-            format!("[{} - {}]", register, i8::abs(displacement))
+            format!("[{} - {}]", register, -displacement)
         }
     }
 }
@@ -142,7 +142,7 @@ fn get_disp_word(register: &str, displacement: i16) -> String {
             format!("[{} + {}]", register, displacement)
         }
         Ordering::Greater => {
-            format!("[{} - {}]", register, i16::abs(displacement))
+            format!("[{} - {}]", register, -displacement)
         }
     }
 }
