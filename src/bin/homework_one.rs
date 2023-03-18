@@ -1,5 +1,10 @@
 use clap::Parser;
-use std::{cmp::Ordering, io::Read};
+use std::{
+    cmp::Ordering,
+    fs::File,
+    io::{BufReader, Bytes, Read},
+    iter::Enumerate,
+};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -75,7 +80,7 @@ fn get_mod_register(mode: u8, is_word: bool) -> &'static str {
     }
 }
 
-// TODO(jmarcil): Table for mappings.
+// TODO(jmarcil): Add doc comment for mappings.
 fn get_displacement_registers(register_memory: u8) -> &'static str {
     match register_memory {
         0b000 => "BX + SI",
@@ -127,23 +132,16 @@ fn i16_displacement(register: &str, displacement: i16) -> String {
 //----------------------------------------------------------------
 // 1 | 0 | 0 | 0 | 1 | 0 | D | W |  MOD  |    REG    |    R/M    |
 //----------------------------------------------------------------
-fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
-    if bytes.len() < *index + 1 {
-        panic!("Invalid instruction length, expected two bytes!");
-    }
-
-    let byte_one: u8 = bytes[*index];
-    let byte_two: u8 = bytes[*index + 1];
-
-    let register: u8 = (byte_two & REG) >> 3;
+fn mov_reg_mem_to_from_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<File>>>) {
+    let destination_in_reg = (byte_one & D) == D;
     let is_word: bool = (byte_one & W) == W;
+
+    let byte_two: u8 = bytes.next().unwrap().1.unwrap();
+    let mode: u8 = (byte_two & MOD) >> 6;
+    let register: u8 = (byte_two & REG) >> 3;
+    let register_memory: u8 = byte_two & R_M;
     let register_in_reg: &str = get_mod_register(register, is_word);
 
-    let destination_in_reg = (byte_one & D) == D;
-
-    let register_memory: u8 = byte_two & R_M;
-
-    let mode: u8 = (byte_two & MOD) >> 6;
     match mode {
         // No displacement
         0b00 => {
@@ -159,21 +157,21 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
                 _ => panic!("Unsupported REG {}!", register_memory),
             };
 
+            let src;
+            let dst;
             if destination_in_reg {
-                println!("MOV {}, {}", register_in_reg, effective_address);
+                src = effective_address;
+                dst = register_in_reg;
             } else {
-                println!("MOV {}, {}", effective_address, register_in_reg);
+                src = register_in_reg;
+                dst = effective_address;
             }
 
-            *index += 2;
+            println!("MOV {dst}, {src}");
         }
         // 8-bit displacement
         0b01 => {
-            if bytes.len() < *index + 2 {
-                panic!("Invalid instruction length, expected three bytes!");
-            }
-
-            let displacement: i8 = bytes[*index + 2] as i8;
+            let displacement: i8 = bytes.next().unwrap().1.unwrap() as i8;
 
             let registers: &str = get_displacement_registers(register_memory);
 
@@ -188,18 +186,11 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
             };
 
             println!("MOV {dst}, {src}");
-
-            *index += 3;
         }
         // 16-bit displacement
         0b10 => {
-            if bytes.len() < *index + 3 {
-                panic!("Unexpected instruction length, expected four bytes!");
-            }
-
-            let byte_three: u8 = bytes[*index + 2];
-            let byte_four: u8 = bytes[*index + 3];
-
+            let byte_three: u8 = bytes.next().unwrap().1.unwrap();
+            let byte_four: u8 = bytes.next().unwrap().1.unwrap();
             let displacement: i16 = (byte_four as i16) << 8 | (byte_three as i16);
 
             let registers = get_displacement_registers(register_memory);
@@ -215,20 +206,22 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
             };
 
             println!("MOV {dst}, {src}");
-
-            *index += 4;
         }
         // Register
         0b11 => {
             let register_in_r_m = get_mod_register(register_memory, is_word);
 
+            let src;
+            let dst;
             if destination_in_reg {
-                println!("MOV {}, {}", register_in_reg, register_in_r_m);
+                src = register_in_r_m;
+                dst = register_in_reg;
             } else {
-                println!("MOV {}, {}", register_in_r_m, register_in_reg);
+                src = register_in_reg;
+                dst = register_in_r_m;
             }
 
-            *index += 2;
+            println!("MOV {dst}, {src}");
         }
         _ => {
             unreachable!()
@@ -245,33 +238,21 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
 //------------------------------------------------------------------------------------------------
 // 1 | 0 | 1 | 1 | W |    REG    |             DATA              |         DATA (W == 1)         |
 //------------------------------------------------------------------------------------------------
-fn mov_imm_to_reg(index: &mut usize, bytes: &[u8]) {
-    if bytes.len() < *index + 1 {
-        panic!("Unexpected instruction length, expected two bytes!");
-    }
-
-    let byte_one: u8 = bytes[*index];
-    let byte_two: u8 = bytes[*index + 1];
-
+fn mov_imm_to_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<File>>>) {
     let reg: u8 = byte_one & 0b111;
     let is_word: bool = (byte_one & 0b1000) == 0b1000;
-    let register = get_mod_register(reg, is_word);
 
-    if is_word {
-        if bytes.len() < *index + 2 {
-            panic!("Unexpected instruction length, expected three bytes!");
-        }
+    let src = get_mod_register(reg, is_word);
 
-        let byte_three: u8 = bytes[*index + 2];
-        let immediate: i16 = ((byte_three as i16) << 8) | (byte_two as i16);
-        println!("MOV {}, {}", register, immediate);
-
-        *index += 3;
+    let dst = if is_word {
+        let lo = bytes.next().unwrap().1.unwrap() as i16;
+        let hi = bytes.next().unwrap().1.unwrap() as i16;
+        (hi << 8) | lo
     } else {
-        println!("MOV {}, {}", register, byte_two);
+        bytes.next().unwrap().1.unwrap() as i16
+    };
 
-        *index += 2;
-    }
+    println!("MOV {dst}, {src}");
 }
 
 // TODO(jmarcil): Replace panic! with more idiomatic error handling.
@@ -282,26 +263,25 @@ fn main() {
         println!("; {}", args.input);
         println!("bits 16");
 
-        let mut reader = std::io::BufReader::new(file);
-        let mut bytes = vec![];
-        if reader.read_to_end(&mut bytes).is_ok() {
-            let mut index: usize = 0;
-            while bytes.len() > index {
-                let byte_one: u8 = bytes[index];
-                let opcode: u8 = (byte_one & OPCODE) >> 2;
+        let mut bytes = BufReader::new(file).bytes().enumerate();
 
-                match opcode {
-                    //--------------------------------
-                    //  MOV - Reg/Mem to/from Reg
-                    //--------------------------------
-                    0b100010 => mov_reg_mem_to_from_reg(&mut index, &bytes),
-                    //--------------------------------
-                    //  MOV - Imm to Reg
-                    //--------------------------------
-                    0b101100 | 0b101101 | 0b101110 | 0b101111 => mov_imm_to_reg(&mut index, &bytes),
-                    _ => {
-                        panic!("Unsupported OPCODE {:b}!", opcode);
-                    }
+        // TODO(jmarcil): Utilize position for labels.
+        while let Some((_, Ok(byte_one))) = bytes.next() {
+            let opcode: u8 = (byte_one & OPCODE) >> 2;
+
+            // TODO(jmarcil): Add support for additional opcodes.
+            // TODO(jmarcil): Replace with a jump table?
+            match opcode {
+                //--------------------------------
+                //  MOV - Reg/Mem to/from Reg
+                //--------------------------------
+                0b100010 => mov_reg_mem_to_from_reg(byte_one, &mut bytes),
+                //--------------------------------
+                //  MOV - Imm to Reg
+                //--------------------------------
+                0b1011_00..=0b1011_11 => mov_imm_to_reg(byte_one, &mut bytes),
+                _ => {
+                    panic!("Unsupported OPCODE {:b}!", opcode);
                 }
             }
         }
