@@ -191,9 +191,9 @@ fn mov_reg_mem_to_from_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<F
             let dst;
             if destination_in_reg {
                 src = get_disp_byte(&disp_registers, disp);
-                dst = register_in_reg.to_owned();
+                dst = register_in_reg;
             } else {
-                src = register_in_reg.to_owned();
+                src = register_in_reg;
                 dst = get_disp_byte(&disp_registers, disp);
             };
 
@@ -210,9 +210,9 @@ fn mov_reg_mem_to_from_reg(byte_one: u8, bytes: &mut Enumerate<Bytes<BufReader<F
             let dst;
             if destination_in_reg {
                 src = get_disp_word(&registers, disp);
-                dst = register_in_reg.to_owned();
+                dst = register_in_reg;
             } else {
-                src = register_in_reg.to_owned();
+                src = register_in_reg;
                 dst = get_disp_word(&registers, disp);
             };
 
