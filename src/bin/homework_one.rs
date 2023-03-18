@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::io::Read;
+use std::{cmp::Ordering, io::Read};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -47,66 +47,73 @@ const R_M: u8 = 0b00000111;
 //------------------------------
 // 1 | 1 | 1 |   BH   |   DI   |
 //------------------------------
-fn get_register(reg: u8, is_word: bool) -> &'static str {
-    match reg {
-        0b000 => {
-            if is_word {
-                "AX"
-            } else {
-                "AL"
-            }
+fn get_mod_register(mode: u8, is_word: bool) -> &'static str {
+    if is_word {
+        match mode {
+            0b000 => "AX",
+            0b001 => "CX",
+            0b010 => "DX",
+            0b011 => "BX",
+            0b100 => "SP",
+            0b101 => "BP",
+            0b110 => "SI",
+            0b111 => "DI",
+            _ => unreachable!(),
         }
-        0b001 => {
-            if is_word {
-                "CX"
-            } else {
-                "CL"
-            }
+    } else {
+        match mode {
+            0b000 => "AL",
+            0b001 => "CL",
+            0b010 => "DL",
+            0b011 => "BL",
+            0b100 => "AH",
+            0b101 => "CH",
+            0b110 => "DH",
+            0b111 => "BH",
+            _ => unreachable!(),
         }
-        0b010 => {
-            if is_word {
-                "DX"
-            } else {
-                "DL"
-            }
+    }
+}
+
+// TODO(jmarcil): Table for mappings.
+fn get_displacement_registers(register_memory: u8) -> &'static str {
+    match register_memory {
+        0b000 => "BX + SI",
+        0b001 => "BX + DI",
+        0b010 => "BP + SI",
+        0b011 => "BP + DI",
+        0b100 => "SI",
+        0b101 => "DI",
+        0b110 => "BP",
+        0b111 => "BX",
+        _ => unreachable!(),
+    }
+}
+
+fn i8_displacement(register: &str, displacement: i8) -> String {
+    match 0.cmp(&displacement) {
+        Ordering::Equal => {
+            format!("[{}]", register)
         }
-        0b011 => {
-            if is_word {
-                "BX"
-            } else {
-                "BL"
-            }
+        Ordering::Less => {
+            format!("[{} + {}]", register, displacement)
         }
-        0b100 => {
-            if is_word {
-                "SP"
-            } else {
-                "AH"
-            }
+        Ordering::Greater => {
+            format!("[{} - {}]", register, i8::abs(displacement))
         }
-        0b101 => {
-            if is_word {
-                "BP"
-            } else {
-                "CH"
-            }
+    }
+}
+
+fn i16_displacement(register: &str, displacement: i16) -> String {
+    match 0.cmp(&displacement) {
+        Ordering::Equal => {
+            format!("[{}]", register)
         }
-        0b110 => {
-            if is_word {
-                "SI"
-            } else {
-                "DH"
-            }
+        Ordering::Less => {
+            format!("[{} + {}]", register, displacement)
         }
-        0b111 => {
-            if is_word {
-                "DI"
-            } else {
-                "BH"
-            }
-        }
-        _ => {
-            panic!("Unsupported value for REG or R/M");
+        Ordering::Greater => {
+            format!("[{} - {}]", register, i16::abs(displacement))
         }
     }
 }
@@ -130,7 +137,7 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
 
     let register: u8 = (byte_two & REG) >> 3;
     let is_word: bool = (byte_one & W) == W;
-    let register_in_reg: &str = get_register(register, is_word);
+    let register_in_reg: &str = get_mod_register(register, is_word);
 
     let destination_in_reg = (byte_one & D) == D;
 
@@ -166,38 +173,21 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
                 panic!("Invalid instruction length, expected three bytes!");
             }
 
-            // TODO(jmarcil): Properly display negative displacement.
             let displacement: i8 = bytes[*index + 2] as i8;
 
-            let registers: &str = match register_memory {
-                0b000 => "BX + SI",
-                0b001 => "BX + DI",
-                0b010 => "BP + SI",
-                0b011 => "BP + DI",
-                0b100 => "SI",
-                0b101 => "DI",
-                0b110 => "BP",
-                0b111 => "BX",
-                _ => panic!("Unsupported REG {:b}!", register_memory),
+            let registers: &str = get_displacement_registers(register_memory);
+
+            let src;
+            let dst;
+            if destination_in_reg {
+                src = i8_displacement(registers, displacement);
+                dst = register_in_reg.to_owned();
+            } else {
+                src = register_in_reg.to_owned();
+                dst = i8_displacement(registers, displacement);
             };
 
-            if destination_in_reg {
-                if displacement != 0 {
-                    println!(
-                        "MOV {}, [{} + {}]",
-                        register_in_reg, registers, displacement
-                    );
-                } else {
-                    println!("MOV {}, [{}]", register_in_reg, registers);
-                }
-            } else if displacement != 0 {
-                println!(
-                    "MOV [{} + {}], {}",
-                    registers, displacement, register_in_reg
-                );
-            } else {
-                println!("MOV [{}], {}", registers, register_in_reg);
-            }
+            println!("MOV {dst}, {src}");
 
             *index += 3;
         }
@@ -210,44 +200,27 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
             let byte_three: u8 = bytes[*index + 2];
             let byte_four: u8 = bytes[*index + 3];
 
-            // TODO(jmarcil): Properly display negative displacement.
             let displacement: i16 = (byte_four as i16) << 8 | (byte_three as i16);
 
-            let registers: &str = match register_memory {
-                0b000 => "BX + SI",
-                0b001 => "BX + DI",
-                0b010 => "BP + SI",
-                0b011 => "BP + DI",
-                0b100 => "SI",
-                0b101 => "DI",
-                0b110 => "BP",
-                0b111 => "BX",
-                _ => panic!("Unsupported REG {:b}!", register_memory),
+            let registers = get_displacement_registers(register_memory);
+
+            let src;
+            let dst;
+            if destination_in_reg {
+                src = i16_displacement(registers, displacement);
+                dst = register_in_reg.to_owned();
+            } else {
+                src = register_in_reg.to_owned();
+                dst = i16_displacement(registers, displacement);
             };
 
-            if destination_in_reg {
-                if displacement != 0 {
-                    println!(
-                        "MOV {}, [{} + {}]",
-                        register_in_reg, registers, displacement
-                    );
-                } else {
-                    println!("MOV {}, [{}]", register_in_reg, registers);
-                }
-            } else if displacement != 0 {
-                println!(
-                    "MOV [{} + {}], {}",
-                    registers, displacement, register_in_reg
-                );
-            } else {
-                println!("MOV [{}], {}", registers, register_in_reg);
-            }
+            println!("MOV {dst}, {src}");
 
             *index += 4;
         }
         // Register
         0b11 => {
-            let register_in_r_m = get_register(register_memory, is_word);
+            let register_in_r_m = get_mod_register(register_memory, is_word);
 
             if destination_in_reg {
                 println!("MOV {}, {}", register_in_reg, register_in_r_m);
@@ -258,7 +231,7 @@ fn mov_reg_mem_to_from_reg(index: &mut usize, bytes: &[u8]) {
             *index += 2;
         }
         _ => {
-            panic!("Unsupported MOD {:b}!", mode);
+            unreachable!()
         }
     }
 }
@@ -282,7 +255,7 @@ fn mov_imm_to_reg(index: &mut usize, bytes: &[u8]) {
 
     let reg: u8 = byte_one & 0b111;
     let is_word: bool = (byte_one & 0b1000) == 0b1000;
-    let register = get_register(reg, is_word);
+    let register = get_mod_register(reg, is_word);
 
     if is_word {
         if bytes.len() < *index + 2 {
